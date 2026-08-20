@@ -82,6 +82,46 @@ def test_same_source_version_is_idempotent(tmp_path: Path) -> None:
     assert not result.changed
 
 
+def test_new_timestamp_with_identical_content_does_not_create_a_version(tmp_path: Path) -> None:
+    rows = courses()
+    publish_snapshot(snapshot("20260820_083034", rows), tmp_path, minimum_course_count=3, now=NOW)
+    result = publish_snapshot(
+        snapshot("20260820_084534", rows),
+        tmp_path,
+        minimum_course_count=3,
+        now=NOW,
+    )
+    assert not result.changed
+    assert result.version == "20260820_083034"
+    assert result.ignored_reason == "content_unchanged"
+    assert not (tmp_path / "1151" / "20260820_084534").exists()
+
+
+def test_older_fallback_cannot_replace_newer_official_snapshot(tmp_path: Path) -> None:
+    rows = courses()
+    official = snapshot("20260820_090000", rows)
+    official = FetchedSnapshot(
+        **{**official.__dict__, "source_name": "NSYSUOfficial", "source_url": "https://example.test"}
+    )
+    publish_snapshot(official, tmp_path, minimum_course_count=3, now=NOW)
+    official_manifest = read_json(tmp_path / "1151" / "20260820_090000" / "manifest.json")
+    assert official_manifest["source"] == "NSYSUOfficial"
+    assert official_manifest["sourceUrl"] == "https://example.test"
+    older_rows = courses()
+    older_rows[0]["select"] += 1
+    result = publish_snapshot(
+        snapshot("20260820_083034", older_rows),
+        tmp_path,
+        minimum_course_count=3,
+        now=NOW,
+    )
+    assert not result.changed
+    assert result.version == "20260820_090000"
+    assert result.source_name == "NSYSUOfficial"
+    assert result.ignored_reason == "out_of_order_candidate"
+    assert read_json(tmp_path / "lkg" / "1151" / "all.json") == rows
+
+
 def test_same_source_version_with_changed_content_is_rejected(tmp_path: Path) -> None:
     rows = courses()
     first = snapshot("20260820_083034", rows)

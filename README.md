@@ -4,13 +4,14 @@ A validated, versioned, static course-data API for ClearGrad. It keeps the
 existing `NSYSUCourseAPI` row contract and URL layout so ClearGrad can switch
 sources without rewriting its course parser.
 
-This project is an independent publication and validation pipeline. In its
-first release it consumes the public snapshots produced by
-[NSYSUCourseAPI](https://github.com/NSYSU-OpenDev/NSYSUCourseAPI), cross-checks
-their structure and continuity, and publishes only snapshots that pass all
-safety gates. It does **not** automate or bypass the verification code on the
-official NSYSU course system. A direct official-site collector should only be
-enabled after the university authorizes its request frequency and method.
+> 感謝國立中山大學提供課程資料。
+
+This project is an independent publication and validation pipeline. Its primary
+collector queries the public NSYSU course system directly every 15 minutes,
+limits official-site concurrency to two requests, cross-checks structure and
+continuity, and publishes only snapshots that pass all safety gates.
+[NSYSUCourseAPI](https://github.com/NSYSU-OpenDev/NSYSUCourseAPI) remains a
+fallback source, not the primary data feed.
 
 ## Static API
 
@@ -57,10 +58,12 @@ deployment remains the last-known-good snapshot.
 
 ## Update policy
 
-The workflow runs at minute 7 and 37 of each hour. Offsetting the schedule from
-the top of the hour avoids the busiest GitHub Actions window. It tries the
-NSYSUCourseAPI Pages endpoint first and its raw `gh-pages` representation
-second, then validates before publishing.
+The workflow runs at minute 2, 17, 32, and 47 of each hour. Offsetting the
+schedule from the top of the hour avoids the busiest GitHub Actions window. It
+queries the official NSYSU course system first with at most two concurrent
+requests. If that collector fails, it tries the NSYSUCourseAPI Pages endpoint
+and then its raw `gh-pages` representation. Older fallback data is never
+allowed to replace a newer last-known-good snapshot.
 
 The root upstream index is also used for automatic semester discovery. On the
 first successful run, every missing semester is backfilled once with its latest
@@ -83,9 +86,9 @@ regular catalogs use 500 rows.
 
 Five hot snapshots bound Pages size and hydration traffic while the permanent
 per-semester snapshot keeps old planning data available. Supabase remains a
-separate cold backup and is not involved in the 30-minute discovery job.
+separate cold backup and is not involved in the 15-minute discovery job.
 
-Supabase is deliberately excluded from this 30-minute workflow. It is a cold
+Supabase is deliberately excluded from this 15-minute workflow. It is a cold
 backup, not another live mirror. See
 [ClearGrad integration](docs/cleargrad-integration.md) for the read/write
 policy.

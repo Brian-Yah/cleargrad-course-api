@@ -4,13 +4,19 @@ build-backend = "hatchling.build"
 
 [project]
 name = "cleargrad-course-api"
-version = "0.1.0"
+version = "0.2.0"
 description = "Validated, versioned NSYSU course snapshots for ClearGrad"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
 authors = [{ name = "ClearGrad contributors" }]
-dependencies = []
+dependencies = [
+  "aiohttp>=3.11,<4",
+  "beautifulsoup4>=4.12,<5",
+  "numpy>=1.26,<3",
+  "onnxruntime>=1.20,<2",
+  "pillow>=11,<13",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -27,4 +33,3 @@ packages = ["src/cleargrad_course_api"]
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
-

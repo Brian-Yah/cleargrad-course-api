@@ -29,7 +29,7 @@
     "compatibilityProfile": { "const": "NSYSUCourseAPI-v1" },
     "semester": { "type": "string", "pattern": "^[0-9]{4}$" },
     "snapshotId": { "type": "string", "pattern": "^[0-9]{8}_[0-9]{6}$" },
-    "source": { "const": "NSYSUCourseAPI" },
+    "source": { "enum": ["NSYSUOfficial", "NSYSUCourseAPI"] },
     "sourceBase": { "type": "string", "format": "uri" },
     "sourceUrl": { "type": "string", "format": "uri" },
     "sourceVersion": { "type": "string", "pattern": "^[0-9]{8}_[0-9]{6}$" },

@@ -6,7 +6,9 @@ from pathlib import Path
 import sys
 
 from .constants import DEFAULT_SOURCE_BASES
+from .direct import DirectCrawlError, OFFICIAL_BASE_URL, OFFICIAL_RESULTS_URL, crawl_official_courses
 from .publisher import (
+    FetchedSnapshot,
     PublicationRejected,
     audit_site,
     copy_schemas,
@@ -26,6 +28,11 @@ def build_parser() -> argparse.ArgumentParser:
     sync.add_argument("--schema-dir", type=Path, default=Path("schemas"))
     sync.add_argument("--semester")
     sync.add_argument("--source-base", action="append", dest="source_bases")
+    sync.add_argument(
+        "--mirror-only",
+        action="store_true",
+        help="Skip the official collector and use NSYSUCourseAPI",
+    )
     sync.add_argument("--hydrate-from", default="")
     sync.add_argument("--minimum-course-count", type=int)
     sync.add_argument(
@@ -35,6 +42,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sync.add_argument("--max-drop-ratio", type=float, default=0.10)
     sync.add_argument("--timeout", type=float, default=45.0)
+    sync.add_argument(
+        "--official-timeout",
+        type=float,
+        default=120.0,
+        help="Per-request timeout for the slower official NSYSU course site",
+    )
+    sync.add_argument(
+        "--official-budget-seconds",
+        type=float,
+        default=600.0,
+        help="Maximum total official crawl time before the static fallback is used",
+    )
 
     audit = subparsers.add_parser("audit", help="Validate the latest published snapshots")
     audit.add_argument("--output", type=Path, default=Path("site"))
@@ -54,11 +73,48 @@ def main(argv: list[str] | None = None) -> int:
         print(f"warning: {notice}", file=sys.stderr)
     source_bases = tuple(args.source_bases or DEFAULT_SOURCE_BASES)
     try:
-        snapshot = fetch_upstream_snapshot(
-            source_bases,
-            semester=args.semester,
-            timeout=args.timeout,
-        )
+        direct_failure: str | None = None
+        if args.mirror_only:
+            snapshot = fetch_upstream_snapshot(
+                source_bases,
+                semester=args.semester,
+                timeout=args.timeout,
+            )
+        else:
+            try:
+                official = crawl_official_courses(
+                    semester=args.semester,
+                    timeout=args.official_timeout,
+                    max_duration=args.official_budget_seconds,
+                )
+                source_version = official.retrieved_at.strftime("%Y%m%d_%H%M%S")
+                source_time = official.retrieved_at.replace(microsecond=0).isoformat().replace(
+                    "+00:00", "Z"
+                )
+                snapshot = FetchedSnapshot(
+                    semester=official.semester,
+                    source_version=source_version,
+                    source_version_time=source_time,
+                    courses=official.courses,
+                    source_base=OFFICIAL_BASE_URL,
+                    source_root={
+                        "latest": official.semester,
+                        "history": official.semester_history,
+                    },
+                    source_name="NSYSUOfficial",
+                    source_url=OFFICIAL_RESULTS_URL,
+                )
+            except DirectCrawlError as error:
+                direct_failure = str(error)
+                print(
+                    f"warning: official NSYSU crawl failed; trying NSYSUCourseAPI fallback: {error}",
+                    file=sys.stderr,
+                )
+                snapshot = fetch_upstream_snapshot(
+                    source_bases,
+                    semester=args.semester,
+                    timeout=args.timeout,
+                )
         result = publish_snapshot(
             snapshot,
             args.output,
@@ -109,6 +165,9 @@ def main(argv: list[str] | None = None) -> int:
                 "version": result.version,
                 "courseCount": result.course_count,
                 "sourceBase": result.source_base,
+                "source": result.source_name,
+                "ignoredReason": result.ignored_reason,
+                "directCrawlFailure": direct_failure,
                 "manifest": str(result.manifest_path),
                 "backfilled": backfilled,
             },

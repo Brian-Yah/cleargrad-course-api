@@ -3,10 +3,17 @@ made available by the NSYSU Open Development Community through
 NSYSUCourseAPI (MIT License, Copyright (c) 2024 NSYSU Open Development
 Community).
 
+感謝國立中山大學提供課程資料。
+
+The packaged file `src/cleargrad_course_api/assets/nsysu_captcha.onnx` is an
+ONNX conversion of NSYSUCourseAPI's `EfficientCapsNetDeploy.pth` captcha model.
+The original model and its inference implementation are distributed under the
+same upstream MIT License. The conversion preserves the model weights while
+removing the PyTorch runtime dependency.
+
 Upstream project: https://github.com/NSYSU-OpenDev/NSYSUCourseAPI
 Official course system: https://selcrs.nsysu.edu.tw/menu1
 
 ClearGrad is not affiliated with or endorsed by National Sun Yat-sen
 University. Published snapshots must be treated as planning aids and verified
 against official university systems before making enrollment decisions.
-

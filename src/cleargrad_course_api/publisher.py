@@ -37,6 +37,8 @@ class FetchedSnapshot:
     courses: list[dict[str, Any]]
     source_base: str
     source_root: dict[str, Any]
+    source_name: str = "NSYSUCourseAPI"
+    source_url: str | None = None
 
 
 @dataclass(frozen=True)
@@ -47,6 +49,8 @@ class PublishResult:
     course_count: int
     source_base: str
     manifest_path: Path
+    source_name: str
+    ignored_reason: str | None = None
 
 
 def utc_now() -> datetime:
@@ -105,6 +109,13 @@ def fetch_upstream_snapshot(
                 courses=courses,
                 source_base=source_base.rstrip("/"),
                 source_root=root,
+                source_name="NSYSUCourseAPI",
+                source_url=join_url(
+                    source_base,
+                    target_semester,
+                    source_version,
+                    "all.json",
+                ),
             )
         except (FetchError, KeyError, TypeError, ValueError) as error:
             failures.append(f"{source_base}: {error}")
@@ -164,12 +175,45 @@ def publish_snapshot(
     )
     previous_version, previous_courses = _load_previous(output, snapshot.semester)
     canonical_courses, canonicalization = canonicalize_courses(snapshot.courses)
+    checksum = sha256_json(canonical_courses)
+    raw_checksum = sha256_json(snapshot.courses)
+
+    if previous_version is not None:
+        previous_manifest_path = output / snapshot.semester / previous_version / "manifest.json"
+        previous_manifest = read_json(previous_manifest_path, {})
+        previous_source = str(previous_manifest.get("source") or "unknown")
+        previous_source_base = str(previous_manifest.get("sourceBase") or snapshot.source_base)
+        if (
+            previous_manifest.get("sha256") == checksum
+            and previous_manifest.get("rawSha256") == raw_checksum
+        ):
+            return PublishResult(
+                changed=False,
+                semester=snapshot.semester,
+                version=previous_version,
+                course_count=len(canonical_courses),
+                source_base=previous_source_base,
+                manifest_path=previous_manifest_path,
+                source_name=previous_source,
+                ignored_reason="content_unchanged",
+            )
+        if snapshot.source_version < previous_version:
+            return PublishResult(
+                changed=False,
+                semester=snapshot.semester,
+                version=previous_version,
+                course_count=len(previous_courses),
+                source_base=previous_source_base,
+                manifest_path=previous_manifest_path,
+                source_name=previous_source,
+                ignored_reason="out_of_order_candidate",
+            )
+
     current_snapshot_path = output / snapshot.semester / snapshot.source_version / "all.json"
     if previous_version == snapshot.source_version and current_snapshot_path.is_file():
         manifest_path = current_snapshot_path.parent / "manifest.json"
         existing_manifest = read_json(manifest_path, {})
-        incoming_raw_checksum = sha256_json(snapshot.courses)
-        if existing_manifest.get("rawSha256") != incoming_raw_checksum:
+        if existing_manifest.get("rawSha256") != raw_checksum:
             report = ValidationReport(
                 ok=False,
                 errors=[
@@ -186,6 +230,8 @@ def publish_snapshot(
             course_count=len(canonical_courses),
             source_base=snapshot.source_base,
             manifest_path=manifest_path,
+            source_name=snapshot.source_name,
+            ignored_reason="source_version_unchanged",
         )
 
     raw_report = validate_courses(
@@ -219,14 +265,9 @@ def publish_snapshot(
         _write_failure_report(report_dir, snapshot, rejected_report, current_time)
         raise PublicationRejected("; ".join(combined_errors))
 
-    checksum = sha256_json(canonical_courses)
-    raw_checksum = sha256_json(snapshot.courses)
     snapshot_dir = output / snapshot.semester / snapshot.source_version
-    source_all_url = join_url(
-        snapshot.source_base,
-        snapshot.semester,
-        snapshot.source_version,
-        "all.json",
+    source_all_url = snapshot.source_url or join_url(
+        snapshot.source_base, snapshot.semester, snapshot.source_version, "all.json"
     )
     course_diff = diff_courses(previous_courses, canonical_courses)
     publication_warnings = [
@@ -241,7 +282,7 @@ def publish_snapshot(
         "compatibilityProfile": COMPATIBILITY_PROFILE,
         "semester": snapshot.semester,
         "snapshotId": snapshot.source_version,
-        "source": "NSYSUCourseAPI",
+        "source": snapshot.source_name,
         "sourceBase": snapshot.source_base,
         "sourceUrl": source_all_url,
         "sourceVersion": snapshot.source_version,
@@ -353,6 +394,7 @@ def publish_snapshot(
         course_count=len(canonical_courses),
         source_base=snapshot.source_base,
         manifest_path=snapshot_dir / "manifest.json",
+        source_name=snapshot.source_name,
     )
 
 

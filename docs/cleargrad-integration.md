@@ -15,6 +15,13 @@ the application cache: valid version document, valid array, expected semester,
 minimum reasonable row count, required fields, and no abnormal duplicate or
 row-count collapse.
 
+NSYSUCourseAPI is an availability fallback, not an authoritative catalog. Do
+not merge it into a healthy primary response and do not let it overwrite a
+newer primary cache. Its candidate rows must also pass department-level course
+coverage and enrollment-field (`restrict`, `select`, `selected`, `remaining`)
+coverage checks; otherwise ClearGrad keeps its cached primary snapshot and only
+continues to Supabase when the normal fallback conditions are met.
+
 ## Supabase cold-backup rules
 
 Supabase must not be polled during normal startup merely to merge semester

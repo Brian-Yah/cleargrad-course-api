@@ -19,7 +19,7 @@ from .constants import (
 from .canonicalize import canonicalize_courses
 from .diffing import diff_courses
 from .io import FetchError, fetch_bytes, fetch_json, join_url, read_json, sha256_json, write_json
-from .validation import ValidationReport, validate_courses
+from .validation import ValidationReport, validate_continuity, validate_courses
 
 SEMESTER_PATTERN = re.compile(r"^[0-9]{4}$")
 VERSION_PATTERN = re.compile(r"^[0-9]{8}_[0-9]{6}$")
@@ -136,6 +136,32 @@ def _load_previous(output: Path, semester: str) -> tuple[str | None, list[dict[s
     return previous_version, previous if isinstance(previous, list) else []
 
 
+def _load_latest_official_baseline(output: Path, semester: str) -> list[dict[str, Any]]:
+    """Load the newest retained direct-official snapshot for fallback comparison."""
+    retained = read_json(output / "official-baseline" / semester / "all.json", [])
+    if isinstance(retained, list) and retained:
+        return retained
+
+    # Compatibility path for deployments created before the durable baseline
+    # was introduced. A future direct-official publication writes the retained
+    # copy below, so it cannot fall out of the five-snapshot hot history.
+    version_document = read_json(output / semester / "version.json", {})
+    history = version_document.get("history", {}) if isinstance(version_document, dict) else {}
+    if not isinstance(history, dict):
+        return []
+    for version in sorted(history, reverse=True):
+        if not isinstance(version, str) or not VERSION_PATTERN.fullmatch(version):
+            continue
+        snapshot_dir = output / semester / version
+        manifest = read_json(snapshot_dir / "manifest.json", {})
+        if not isinstance(manifest, dict) or manifest.get("source") != "NSYSUOfficial":
+            continue
+        courses = read_json(snapshot_dir / "all.json", [])
+        if isinstance(courses, list):
+            return courses
+    return []
+
+
 def _write_failure_report(
     report_dir: Path | None,
     snapshot: FetchedSnapshot,
@@ -150,6 +176,7 @@ def _write_failure_report(
             "schemaVersion": SCHEMA_VERSION,
             "rejectedAt": iso_utc(now),
             "semester": snapshot.semester,
+            "source": snapshot.source_name,
             "sourceVersion": snapshot.source_version,
             "sourceBase": snapshot.source_base,
             "validation": report.to_dict(),
@@ -250,16 +277,35 @@ def publish_snapshot(
         minimum_course_count=effective_minimum,
         max_drop_ratio=max_drop_ratio,
     )
-    combined_errors = [*raw_report.errors, *canonical_report.errors]
+    continuity_baseline = (
+        _load_latest_official_baseline(output, snapshot.semester)
+        if snapshot.source_name == "NSYSUCourseAPI"
+        else previous_courses
+    )
+    continuity_report = validate_continuity(
+        canonical_courses,
+        baseline_courses=continuity_baseline,
+        source_name=snapshot.source_name,
+    )
+    combined_errors = [
+        *raw_report.errors,
+        *canonical_report.errors,
+        *continuity_report.errors,
+    ]
     if combined_errors:
         rejected_report = ValidationReport(
             ok=False,
             errors=combined_errors,
-            warnings=[*raw_report.warnings, *canonical_report.warnings],
+            warnings=[
+                *raw_report.warnings,
+                *canonical_report.warnings,
+                *continuity_report.warnings,
+            ],
             stats={
                 "raw": raw_report.stats,
                 "canonical": canonical_report.stats,
                 "canonicalization": canonicalization,
+                "continuity": continuity_report.stats,
             },
         )
         _write_failure_report(report_dir, snapshot, rejected_report, current_time)
@@ -270,9 +316,10 @@ def publish_snapshot(
         snapshot.source_base, snapshot.semester, snapshot.source_version, "all.json"
     )
     course_diff = diff_courses(previous_courses, canonical_courses)
-    publication_warnings = [
+    publication_warnings = [*continuity_report.warnings]
+    publication_warnings.extend([
         f"{canonicalization['removedCourseCount']} redundant source rows were canonicalized; see all.raw.json"
-    ] if canonicalization["removedCourseCount"] else []
+    ] if canonicalization["removedCourseCount"] else [])
     if canonicalization["unresolvedConflictGroupCount"]:
         publication_warnings.append(
             f"{canonicalization['unresolvedConflictGroupCount']} canonicalization conflicts remain unresolved"
@@ -310,6 +357,7 @@ def publish_snapshot(
             "raw": raw_report.stats,
             "canonical": canonical_report.stats,
             "canonicalization": canonicalization,
+            "continuity": continuity_report.stats,
         },
     }
     diff_payload = {
@@ -376,6 +424,10 @@ def publish_snapshot(
     write_json(lkg_dir / "all.json", canonical_courses)
     write_json(lkg_dir / "all.raw.json", snapshot.courses)
     write_json(lkg_dir / "manifest.json", manifest, pretty=True)
+    if snapshot.source_name == "NSYSUOfficial":
+        official_baseline_dir = output / "official-baseline" / snapshot.semester
+        write_json(official_baseline_dir / "all.json", canonical_courses)
+        write_json(official_baseline_dir / "manifest.json", manifest, pretty=True)
     write_json(output / "health.json", {
         "schemaVersion": SCHEMA_VERSION,
         "status": "ok",
@@ -461,6 +513,18 @@ def hydrate_site(public_base_url: str, output: Path) -> list[str]:
                     target = output / "lkg" / semester / filename
                     target.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(source, target)
+        for filename in ("all.json", "manifest.json"):
+            try:
+                target = output / "official-baseline" / semester / filename
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(
+                    fetch_bytes(
+                        join_url(base, "official-baseline", semester, filename),
+                        attempts=1,
+                    )
+                )
+            except FetchError:
+                pass
     return notices
 
 

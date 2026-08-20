@@ -7,7 +7,7 @@ from pathlib import Path
 import cleargrad_course_api.cli as cli
 from cleargrad_course_api.direct import DirectCrawlError, OfficialCrawlResult
 from cleargrad_course_api.io import read_json
-from cleargrad_course_api.publisher import FetchedSnapshot
+from cleargrad_course_api.publisher import FetchedSnapshot, publish_snapshot
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "courses.json"
@@ -54,6 +54,25 @@ def test_sync_falls_back_to_static_source(monkeypatch, tmp_path: Path, capsys) -
         raise DirectCrawlError("campus site is temporarily slow")
 
     monkeypatch.setattr(cli, "crawl_official_courses", fail_direct)
+    site = tmp_path / "site"
+    baseline = courses()
+    publish_snapshot(
+        FetchedSnapshot(
+            semester="1151",
+            source_version="20260820_090000",
+            source_version_time="2026-08-20T09:00:00Z",
+            courses=baseline,
+            source_base="https://example.test/official",
+            source_root={"latest": "1151", "history": {"1151": "115暑碩"}},
+            source_name="NSYSUOfficial",
+            source_url="https://example.test/official/results",
+        ),
+        site,
+        minimum_course_count=3,
+        now=NOW,
+    )
+    fallback_courses = courses()
+    fallback_courses[0]["select"] += 1
     monkeypatch.setattr(
         cli,
         "fetch_upstream_snapshot",
@@ -61,7 +80,7 @@ def test_sync_falls_back_to_static_source(monkeypatch, tmp_path: Path, capsys) -
             semester="1151",
             source_version="20260820_091500",
             source_version_time="2026-08-20T09:15:00Z",
-            courses=courses(),
+            courses=fallback_courses,
             source_base="https://example.test/api",
             source_root={"latest": "1151", "history": {"1151": "115暑碩"}},
         ),
@@ -70,7 +89,7 @@ def test_sync_falls_back_to_static_source(monkeypatch, tmp_path: Path, capsys) -
         [
             "sync",
             "--output",
-            str(tmp_path / "site"),
+            str(site),
             "--reports",
             str(tmp_path / "reports"),
             "--minimum-course-count",

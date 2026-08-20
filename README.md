@@ -51,10 +51,25 @@ A fetched snapshot is rejected when any of the following is true:
 - numeric enrollment/capacity fields are invalid;
 - more than 5% of section identities are duplicated;
 - the row count falls more than 10% from the previous accepted snapshot;
+- stable section identities or populated class-time coverage collapse;
+- a fallback candidate loses a significant share of one opening department,
+  even when unrelated rows keep the total course count unchanged;
+- fallback `restrict`, `select`, `selected`, or `remaining` coverage collapses
+  globally or within an opening department;
+- NSYSUCourseAPI attempts to establish a new semester without a previously
+  retained direct-official baseline;
 - the same source version unexpectedly changes checksum.
 
 Rejected data never replaces `/version.json` or `/lkg/...`. The existing Pages
 deployment remains the last-known-good snapshot.
+
+NSYSUCourseAPI is treated as an untrusted emergency candidate rather than an
+authoritative copy. Every changed fallback snapshot is compared with the newest
+durable `/official-baseline/{semester}/` direct snapshot using stricter
+whole-catalog, department, and enrollment-field continuity gates. A complete
+direct-official snapshot may
+legitimately add, modify, or remove courses; accepted removals remain visible in
+the versioned `diff.json`, `diff.txt`, and manifest warnings.
 
 ## Update policy
 

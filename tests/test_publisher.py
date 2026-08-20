@@ -25,6 +25,8 @@ def snapshot(version: str, rows: list[dict]) -> FetchedSnapshot:
         courses=rows,
         source_base="https://example.test/api",
         source_root={"latest": "1151", "history": {"1151": "115上"}},
+        source_name="NSYSUOfficial",
+        source_url="https://example.test/official",
     )
 
 
@@ -36,7 +38,34 @@ def short_semester_snapshot(rows: list[dict]) -> FetchedSnapshot:
         courses=rows,
         source_base="https://example.test/api",
         source_root={"latest": "1151", "history": {"1143": "114暑期", "1151": "115上"}},
+        source_name="NSYSUOfficial",
+        source_url="https://example.test/official",
     )
+
+
+def fallback_snapshot(version: str, rows: list[dict]) -> FetchedSnapshot:
+    value = snapshot(version, rows)
+    return FetchedSnapshot(
+        **{
+            **value.__dict__,
+            "source_name": "NSYSUCourseAPI",
+            "source_url": "https://example.test/mirror/all.json",
+        }
+    )
+
+
+def expanded_courses(count: int, *, department: str = "一般學系") -> list[dict]:
+    seed = courses()[0]
+    rows: list[dict] = []
+    for index in range(count):
+        row = dict(seed)
+        row["id"] = f"COURSE{index:04d}"
+        row["department"] = department
+        row["select"] = index + 1
+        row["selected"] = index + 2
+        row["remaining"] = 100 - index
+        rows.append(row)
+    return rows
 
 
 def test_publish_creates_compatible_versioned_snapshot_and_lkg(tmp_path: Path) -> None:
@@ -110,7 +139,7 @@ def test_older_fallback_cannot_replace_newer_official_snapshot(tmp_path: Path) -
     older_rows = courses()
     older_rows[0]["select"] += 1
     result = publish_snapshot(
-        snapshot("20260820_083034", older_rows),
+        fallback_snapshot("20260820_083034", older_rows),
         tmp_path,
         minimum_course_count=3,
         now=NOW,
@@ -120,6 +149,110 @@ def test_older_fallback_cannot_replace_newer_official_snapshot(tmp_path: Path) -
     assert result.source_name == "NSYSUOfficial"
     assert result.ignored_reason == "out_of_order_candidate"
     assert read_json(tmp_path / "lkg" / "1151" / "all.json") == rows
+
+
+def test_fallback_cannot_bootstrap_without_an_official_baseline(tmp_path: Path) -> None:
+    with pytest.raises(PublicationRejected, match="cannot establish a semester baseline"):
+        publish_snapshot(
+            fallback_snapshot("20260820_083034", courses()),
+            tmp_path,
+            minimum_course_count=3,
+            now=NOW,
+        )
+    assert not (tmp_path / "version.json").exists()
+
+
+def test_fallback_missing_one_department_is_rejected_even_when_total_is_unchanged(
+    tmp_path: Path,
+) -> None:
+    general = expanded_courses(200)
+    sports = expanded_courses(40, department="運動健康（體育）")
+    for index, row in enumerate(sports):
+        row["id"] = f"SPORT{index:04d}"
+    baseline = [*general, *sports]
+    publish_snapshot(snapshot("20260820_090000", baseline), tmp_path, minimum_course_count=3, now=NOW)
+
+    replacement = expanded_courses(20, department="新增單位")
+    for index, row in enumerate(replacement):
+        row["id"] = f"NEW{index:04d}"
+    incomplete = [*general, *sports[:20], *replacement]
+    reports = tmp_path / "reports"
+    with pytest.raises(PublicationRejected, match="運動健康（體育）.*possible partial catalog"):
+        publish_snapshot(
+            fallback_snapshot("20260820_091500", incomplete),
+            tmp_path,
+            report_dir=reports,
+            minimum_course_count=3,
+            now=NOW,
+        )
+    assert read_json(tmp_path / "lkg" / "1151" / "all.json") == baseline
+    rejection = read_json(reports / "last-rejected.json")
+    assert rejection["source"] == "NSYSUCourseAPI"
+    assert rejection["validation"]["stats"]["continuity"]["sourcePolicy"] == "strict_fallback"
+    assert any("運動健康（體育）" in error for error in rejection["validation"]["errors"])
+
+
+def test_fallback_enrollment_values_cannot_silently_collapse(tmp_path: Path) -> None:
+    baseline = expanded_courses(40)
+    publish_snapshot(snapshot("20260820_090000", baseline), tmp_path, minimum_course_count=3, now=NOW)
+    incomplete = [dict(row, select=0, selected=0) for row in baseline]
+
+    with pytest.raises(PublicationRejected, match="enrollment field 'select'.*collapsed"):
+        publish_snapshot(
+            fallback_snapshot("20260820_091500", incomplete),
+            tmp_path,
+            minimum_course_count=3,
+            now=NOW,
+        )
+    assert read_json(tmp_path / "lkg" / "1151" / "all.json") == baseline
+
+
+def test_official_baseline_remains_durable_across_fallback_updates(tmp_path: Path) -> None:
+    baseline = expanded_courses(40)
+    publish_snapshot(snapshot("20260820_090000", baseline), tmp_path, minimum_course_count=3, now=NOW)
+
+    first_fallback = [dict(row) for row in baseline]
+    first_fallback[0]["select"] += 1
+    publish_snapshot(
+        fallback_snapshot("20260820_091500", first_fallback),
+        tmp_path,
+        minimum_course_count=3,
+        now=NOW,
+    )
+    second_fallback = [dict(row) for row in first_fallback]
+    second_fallback[1]["selected"] += 1
+    publish_snapshot(
+        fallback_snapshot("20260820_093000", second_fallback),
+        tmp_path,
+        minimum_course_count=3,
+        now=NOW,
+    )
+
+    assert read_json(tmp_path / "official-baseline" / "1151" / "all.json") == baseline
+    assert read_json(tmp_path / "lkg" / "1151" / "all.json") == second_fallback
+
+
+def test_complete_official_snapshot_may_remove_courses_from_one_department(
+    tmp_path: Path,
+) -> None:
+    general = expanded_courses(200)
+    sports = expanded_courses(40, department="運動健康（體育）")
+    for index, row in enumerate(sports):
+        row["id"] = f"SPORT{index:04d}"
+    baseline = [*general, *sports]
+    publish_snapshot(snapshot("20260820_090000", baseline), tmp_path, minimum_course_count=3, now=NOW)
+
+    official_update = [*general, *sports[:20]]
+    result = publish_snapshot(
+        snapshot("20260820_091500", official_update),
+        tmp_path,
+        minimum_course_count=3,
+        now=NOW,
+    )
+    assert result.changed
+    assert read_json(tmp_path / "lkg" / "1151" / "all.json") == official_update
+    manifest = read_json(tmp_path / "1151" / "20260820_091500" / "manifest.json")
+    assert any("accepted as an official catalog change" in item for item in manifest["warnings"])
 
 
 def test_same_source_version_with_changed_content_is_rejected(tmp_path: Path) -> None:

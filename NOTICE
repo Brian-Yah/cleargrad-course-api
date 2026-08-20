@@ -1,0 +1,12 @@
+This project publishes a compatibility representation of public course data
+made available by the NSYSU Open Development Community through
+NSYSUCourseAPI (MIT License, Copyright (c) 2024 NSYSU Open Development
+Community).
+
+Upstream project: https://github.com/NSYSU-OpenDev/NSYSUCourseAPI
+Official course system: https://selcrs.nsysu.edu.tw/menu1
+
+ClearGrad is not affiliated with or endorsed by National Sun Yat-sen
+University. Published snapshots must be treated as planning aids and verified
+against official university systems before making enrollment decisions.
+

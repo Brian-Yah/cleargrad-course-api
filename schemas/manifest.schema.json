@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cleargrad.app/schemas/course-api/v1/manifest.schema.json",
+  "title": "ClearGrad course snapshot manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "compatibilityProfile",
+    "semester",
+    "snapshotId",
+    "source",
+    "sourceBase",
+    "sourceUrl",
+    "sourceVersion",
+    "retrievedAt",
+    "publishedAt",
+    "courseCount",
+    "rawCourseCount",
+    "sha256",
+    "rawSha256",
+    "validationStatus",
+    "warnings",
+    "canonicalization",
+    "previousSnapshotId"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0.0" },
+    "compatibilityProfile": { "const": "NSYSUCourseAPI-v1" },
+    "semester": { "type": "string", "pattern": "^[0-9]{4}$" },
+    "snapshotId": { "type": "string", "pattern": "^[0-9]{8}_[0-9]{6}$" },
+    "source": { "const": "NSYSUCourseAPI" },
+    "sourceBase": { "type": "string", "format": "uri" },
+    "sourceUrl": { "type": "string", "format": "uri" },
+    "sourceVersion": { "type": "string", "pattern": "^[0-9]{8}_[0-9]{6}$" },
+    "sourceVersionTime": { "type": ["string", "null"] },
+    "retrievedAt": { "type": "string", "format": "date-time" },
+    "publishedAt": { "type": "string", "format": "date-time" },
+    "courseCount": { "type": "integer", "minimum": 500 },
+    "rawCourseCount": { "type": "integer", "minimum": 500 },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "rawSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "validationStatus": { "const": "passed" },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "canonicalization": {
+      "type": "object",
+      "required": [
+        "rawCourseCount",
+        "canonicalCourseCount",
+        "removedCourseCount",
+        "exactDuplicatesRemoved",
+        "descriptionVariantsMerged",
+        "unresolvedConflictGroupCount",
+        "unresolvedConflicts",
+        "conflictsTruncated"
+      ],
+      "properties": {
+        "rawCourseCount": { "type": "integer", "minimum": 0 },
+        "canonicalCourseCount": { "type": "integer", "minimum": 0 },
+        "removedCourseCount": { "type": "integer", "minimum": 0 },
+        "exactDuplicatesRemoved": { "type": "integer", "minimum": 0 },
+        "descriptionVariantsMerged": { "type": "integer", "minimum": 0 },
+        "unresolvedConflictGroupCount": { "type": "integer", "minimum": 0 },
+        "unresolvedConflicts": { "type": "array", "items": { "type": "object" } },
+        "conflictsTruncated": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "previousSnapshotId": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "string", "pattern": "^[0-9]{8}_[0-9]{6}$" }
+      ]
+    }
+  }
+}

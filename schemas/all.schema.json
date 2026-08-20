@@ -1,0 +1,9 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cleargrad.app/schemas/course-api/v1/all.schema.json",
+  "title": "ClearGrad static course snapshot",
+  "type": "array",
+  "minItems": 500,
+  "items": { "$ref": "course.schema.json" }
+}
+

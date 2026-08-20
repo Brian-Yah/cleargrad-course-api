@@ -62,6 +62,29 @@ the top of the hour avoids the busiest GitHub Actions window. It tries the
 NSYSUCourseAPI Pages endpoint first and its raw `gh-pages` representation
 second, then validates before publishing.
 
+The root upstream index is also used for automatic semester discovery. On the
+first successful run, every missing semester is backfilled once with its latest
+validated snapshot. Later runs update the newest semester and backfill only a
+newly discovered semester, so historical catalogs do not generate repeated
+network traffic. Third-semester summer catalogs use a 10-row safety floor;
+regular catalogs use 500 rows.
+
+## Retention
+
+- every discovered semester keeps at least its final/latest validated snapshot
+  indefinitely;
+- the active semester keeps the newest five content-changing snapshots;
+- both canonical `all.json` and complete `all.raw.json` are retained for those
+  snapshots;
+- retention is version-count based, not day based;
+- a semester is not removed merely because it disappears from the latest
+  upstream index—the hydrated published root remains authoritative for archive
+  discovery.
+
+Five hot snapshots bound Pages size and hydration traffic while the permanent
+per-semester snapshot keeps old planning data available. Supabase remains a
+separate cold backup and is not involved in the 30-minute discovery job.
+
 Supabase is deliberately excluded from this 30-minute workflow. It is a cold
 backup, not another live mirror. See
 [ClearGrad integration](docs/cleargrad-integration.md) for the read/write

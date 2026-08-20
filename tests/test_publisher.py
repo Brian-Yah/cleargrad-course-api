@@ -28,6 +28,17 @@ def snapshot(version: str, rows: list[dict]) -> FetchedSnapshot:
     )
 
 
+def short_semester_snapshot(rows: list[dict]) -> FetchedSnapshot:
+    return FetchedSnapshot(
+        semester="1143",
+        source_version="20260623_185953",
+        source_version_time="2026-06-23T18:59:53Z",
+        courses=rows,
+        source_base="https://example.test/api",
+        source_root={"latest": "1151", "history": {"1143": "114暑期", "1151": "115上"}},
+    )
+
+
 def test_publish_creates_compatible_versioned_snapshot_and_lkg(tmp_path: Path) -> None:
     rows = courses()
     result = publish_snapshot(
@@ -105,3 +116,25 @@ def test_rejected_snapshot_does_not_replace_last_known_good(tmp_path: Path) -> N
         )
     assert read_json(tmp_path / "1151" / "version.json")["latest"] == "20260820_083034"
     assert read_json(tmp_path / "lkg" / "1151" / "all.json") == first_rows
+
+
+def test_short_third_semester_uses_adaptive_safety_floor(tmp_path: Path) -> None:
+    seed = courses()[0]
+    rows = []
+    for index in range(10):
+        row = dict(seed)
+        row["id"] = f"SUMMER{index:02d}"
+        rows.append(row)
+    result = publish_snapshot(short_semester_snapshot(rows), tmp_path, now=NOW)
+    assert result.course_count == 10
+
+
+def test_short_third_semester_below_adaptive_floor_is_rejected(tmp_path: Path) -> None:
+    seed = courses()[0]
+    rows = []
+    for index in range(9):
+        row = dict(seed)
+        row["id"] = f"SUMMER{index:02d}"
+        rows.append(row)
+    with pytest.raises(PublicationRejected, match="below the safety floor 10"):
+        publish_snapshot(short_semester_snapshot(rows), tmp_path, now=NOW)

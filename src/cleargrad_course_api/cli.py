@@ -27,7 +27,12 @@ def build_parser() -> argparse.ArgumentParser:
     sync.add_argument("--semester")
     sync.add_argument("--source-base", action="append", dest="source_bases")
     sync.add_argument("--hydrate-from", default="")
-    sync.add_argument("--minimum-course-count", type=int, default=500)
+    sync.add_argument("--minimum-course-count", type=int)
+    sync.add_argument(
+        "--no-backfill-missing",
+        action="store_true",
+        help="Do not automatically publish the latest snapshot of newly discovered semesters",
+    )
     sync.add_argument("--max-drop-ratio", type=float, default=0.10)
     sync.add_argument("--timeout", type=float, default=45.0)
 
@@ -61,6 +66,33 @@ def main(argv: list[str] | None = None) -> int:
             minimum_course_count=args.minimum_course_count,
             max_drop_ratio=args.max_drop_ratio,
         )
+        backfilled = []
+        if not args.no_backfill_missing:
+            discovered_semesters = sorted(snapshot.source_root.get("history", {}))
+            for discovered_semester in discovered_semesters:
+                if discovered_semester == snapshot.semester:
+                    continue
+                if (args.output / discovered_semester / "version.json").is_file():
+                    continue
+                historical = fetch_upstream_snapshot(
+                    source_bases,
+                    semester=discovered_semester,
+                    timeout=args.timeout,
+                )
+                historical_result = publish_snapshot(
+                    historical,
+                    args.output,
+                    report_dir=args.reports,
+                    minimum_course_count=args.minimum_course_count,
+                    max_drop_ratio=args.max_drop_ratio,
+                )
+                backfilled.append(
+                    {
+                        "semester": historical_result.semester,
+                        "version": historical_result.version,
+                        "courseCount": historical_result.course_count,
+                    }
+                )
         copy_schemas(args.schema_dir, args.output)
     except PublicationRejected as error:
         print(f"publication rejected; last-known-good remains active: {error}", file=sys.stderr)
@@ -78,6 +110,7 @@ def main(argv: list[str] | None = None) -> int:
                 "courseCount": result.course_count,
                 "sourceBase": result.source_base,
                 "manifest": str(result.manifest_path),
+                "backfilled": backfilled,
             },
             ensure_ascii=False,
         )
@@ -87,4 +120,3 @@ def main(argv: list[str] | None = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

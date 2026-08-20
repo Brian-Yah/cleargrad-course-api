@@ -12,9 +12,9 @@ from typing import Any, Iterable
 from .constants import (
     COMPATIBILITY_PROFILE,
     DEFAULT_MAX_DROP_RATIO,
-    DEFAULT_MINIMUM_COURSE_COUNT,
     MAX_VERSION_HISTORY,
     SCHEMA_VERSION,
+    minimum_course_count_for_semester,
 )
 from .canonicalize import canonicalize_courses
 from .diffing import diff_courses
@@ -152,11 +152,16 @@ def publish_snapshot(
     output: Path,
     *,
     report_dir: Path | None = None,
-    minimum_course_count: int = DEFAULT_MINIMUM_COURSE_COUNT,
+    minimum_course_count: int | None = None,
     max_drop_ratio: float = DEFAULT_MAX_DROP_RATIO,
     now: datetime | None = None,
 ) -> PublishResult:
     current_time = now or utc_now()
+    effective_minimum = (
+        minimum_course_count
+        if minimum_course_count is not None
+        else minimum_course_count_for_semester(snapshot.semester)
+    )
     previous_version, previous_courses = _load_previous(output, snapshot.semester)
     canonical_courses, canonicalization = canonicalize_courses(snapshot.courses)
     current_snapshot_path = output / snapshot.semester / snapshot.source_version / "all.json"
@@ -186,7 +191,7 @@ def publish_snapshot(
     raw_report = validate_courses(
         snapshot.courses,
         previous_courses=previous_courses or None,
-        minimum_course_count=minimum_course_count,
+        minimum_course_count=effective_minimum,
         max_drop_ratio=max_drop_ratio,
         # Redundancy is evaluated after conservative canonicalization. A high
         # duplicate ratio alone must not reject a snapshot whose canonical
@@ -196,7 +201,7 @@ def publish_snapshot(
     canonical_report = validate_courses(
         canonical_courses,
         previous_courses=previous_courses or None,
-        minimum_course_count=minimum_course_count,
+        minimum_course_count=effective_minimum,
         max_drop_ratio=max_drop_ratio,
     )
     combined_errors = [*raw_report.errors, *canonical_report.errors]
@@ -428,7 +433,10 @@ def audit_site(output: Path) -> dict[str, Any]:
         latest = semester_document["latest"]
         courses = read_json(output / semester / latest / "all.json")
         manifest = read_json(output / semester / latest / "manifest.json", {})
-        report = validate_courses(courses)
+        report = validate_courses(
+            courses,
+            minimum_course_count=minimum_course_count_for_semester(semester),
+        )
         checksum = sha256_json(courses) if isinstance(courses, list) else None
         if not report.ok:
             failures.extend(f"{semester}: {error}" for error in report.errors)

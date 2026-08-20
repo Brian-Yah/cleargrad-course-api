@@ -37,7 +37,16 @@ REQUIRED_FIELDS = frozenset(
 
 VOLATILE_FIELDS = frozenset({"select", "selected", "remaining"})
 DEFAULT_MINIMUM_COURSE_COUNT = 500
+SHORT_SEMESTER_MINIMUM_COURSE_COUNT = 10
 DEFAULT_MAX_DROP_RATIO = 0.10
 DEFAULT_MAX_DUPLICATE_RATIO = 0.05
 MAX_VERSION_HISTORY = 5
 
+
+def minimum_course_count_for_semester(semester: str) -> int:
+    # NSYSU's third semester is a deliberately small summer catalog. Current
+    # upstream examples contain about two API pages, so the regular 500-row
+    # safety floor would incorrectly reject valid 1123/1133/1143 snapshots.
+    if semester.endswith("3"):
+        return SHORT_SEMESTER_MINIMUM_COURSE_COUNT
+    return DEFAULT_MINIMUM_COURSE_COUNT

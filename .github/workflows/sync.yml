@@ -2,7 +2,7 @@ name: Sync and deploy course API
 
 on:
   schedule:
-    - cron: "2,17,32,47 * * * *"
+    - cron: "7,22,37,52 * * * *"
   workflow_dispatch:
     inputs:
       semester:

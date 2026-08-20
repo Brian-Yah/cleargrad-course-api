@@ -19,16 +19,23 @@ def courses() -> list[dict]:
 
 
 def test_sync_prefers_official_collector(monkeypatch, tmp_path: Path, capsys) -> None:
-    monkeypatch.setattr(
-        cli,
-        "crawl_official_courses",
-        lambda **_kwargs: OfficialCrawlResult(
+    observed: dict[str, object] = {}
+
+    def succeed_direct(**kwargs):
+        observed.update(kwargs)
+        kwargs["progress"]("fixture stage completed")
+        return OfficialCrawlResult(
             semester="1151",
             semester_history={"1151": "115暑碩"},
             courses=courses(),
             page_count=1,
             retrieved_at=NOW,
-        ),
+        )
+
+    monkeypatch.setattr(
+        cli,
+        "crawl_official_courses",
+        succeed_direct,
     )
     result = cli.main(
         [
@@ -43,8 +50,11 @@ def test_sync_prefers_official_collector(monkeypatch, tmp_path: Path, capsys) ->
         ]
     )
     assert result == 0
-    payload = json.loads(capsys.readouterr().out)
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
     assert payload["source"] == "NSYSUOfficial"
+    assert observed["max_duration"] == 720.0
+    assert "official: fixture stage completed" in captured.err
     manifest = read_json(tmp_path / "site" / "1151" / payload["version"] / "manifest.json")
     assert manifest["source"] == "NSYSUOfficial"
 

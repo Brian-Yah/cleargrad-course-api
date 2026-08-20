@@ -51,7 +51,7 @@ def build_parser() -> argparse.ArgumentParser:
     sync.add_argument(
         "--official-budget-seconds",
         type=float,
-        default=600.0,
+        default=720.0,
         help="Maximum total official crawl time before the static fallback is used",
     )
 
@@ -86,6 +86,7 @@ def main(argv: list[str] | None = None) -> int:
                     semester=args.semester,
                     timeout=args.official_timeout,
                     max_duration=args.official_budget_seconds,
+                    progress=lambda message: print(f"official: {message}", file=sys.stderr),
                 )
                 source_version = official.retrieved_at.strftime("%Y%m%d_%H%M%S")
                 source_time = official.retrieved_at.replace(microsecond=0).isoformat().replace(

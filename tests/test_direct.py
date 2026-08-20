@@ -4,10 +4,20 @@ from bs4 import BeautifulSoup
 import hashlib
 from pathlib import Path
 
-from cleargrad_course_api.direct import parse_course_row, parse_semester_index
+from cleargrad_course_api.direct import (
+    MAX_CONCURRENT_REQUESTS,
+    MAX_REQUEST_ATTEMPTS,
+    parse_course_row,
+    parse_semester_index,
+)
 
 
 ROOT = Path(__file__).parents[1]
+
+
+def test_official_collector_is_patient_but_keeps_low_concurrency() -> None:
+    assert MAX_REQUEST_ATTEMPTS == 5
+    assert MAX_CONCURRENT_REQUESTS == 2
 
 
 def test_packaged_captcha_model_is_the_reviewed_onnx_conversion() -> None:

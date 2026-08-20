@@ -73,10 +73,11 @@ the versioned `diff.json`, `diff.txt`, and manifest warnings.
 
 ## Update policy
 
-The workflow runs at minute 2, 17, 32, and 47 of each hour. Offsetting the
-schedule from the top of the hour avoids the busiest GitHub Actions window. It
-queries the official NSYSU course system first with at most two concurrent
-requests. If that collector fails, it tries the NSYSUCourseAPI Pages endpoint
+The workflow runs at minute 7, 22, 37, and 52 of each hour. The offset avoids
+the busiest GitHub Actions window and reduces overlap with other public course
+collectors. It queries the official NSYSU course system first with at most two
+concurrent requests, up to five connection attempts, and a twelve-minute total budget. If
+that collector fails, it tries the NSYSUCourseAPI Pages endpoint
 and then its raw `gh-pages` representation. Older fallback data is never
 allowed to replace a newer last-known-good snapshot.
 

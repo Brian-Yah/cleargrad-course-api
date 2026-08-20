@@ -8,7 +8,7 @@ from importlib.resources import files
 import re
 import ssl
 import time
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urljoin
 
 import aiohttp
@@ -29,7 +29,7 @@ DEFAULT_HEADERS = {
     ),
 }
 MAX_CONCURRENT_REQUESTS = 2
-MAX_REQUEST_ATTEMPTS = 3
+MAX_REQUEST_ATTEMPTS = 5
 MAX_CAPTCHA_ATTEMPTS = 8
 PAGE_COUNT_PATTERN = re.compile(r"Showing page\s+\d+\s+of\s+(\d+)\s+pages", re.I)
 
@@ -295,6 +295,7 @@ async def _crawl_official_async(
     timeout: float,
     solver: CaptchaSolver,
     max_pages: int | None,
+    progress: Callable[[str], None] | None,
 ) -> OfficialCrawlResult:
     ssl_context = ssl.create_default_context(ssl.Purpose.SERVER_AUTH)
     ssl_context.options |= 0x4  # OpenSSL OP_LEGACY_SERVER_CONNECT
@@ -314,9 +315,15 @@ async def _crawl_official_async(
         headers=DEFAULT_HEADERS,
         timeout=client_timeout,
     ) as session:
+        if progress:
+            progress(
+                f"requesting semester index (up to {MAX_REQUEST_ATTEMPTS} connection attempts)"
+            )
         query_page = await _request_text(session, "GET", OFFICIAL_QUERY_URL)
         current_semester, history = parse_semester_index(query_page)
         target_semester = semester or current_semester
+        if progress:
+            progress(f"semester index received; current semester is {current_semester}")
         if target_semester != current_semester:
             raise DirectCrawlError(
                 f"direct crawl is limited to current semester {current_semester}; "
@@ -348,6 +355,10 @@ async def _crawl_official_async(
         fetch_page_count = min(page_count, max_pages) if max_pages is not None else page_count
         if fetch_page_count < 1:
             raise DirectCrawlError(f"max_pages must be positive, received {max_pages}")
+        if progress:
+            progress(
+                f"official query accepted; fetching {fetch_page_count} page(s) with concurrency 2"
+            )
 
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
         payload = _query_payload(target_semester, captcha)
@@ -367,6 +378,8 @@ async def _crawl_official_async(
         if any("Wrong Validation Code" in page for page in pages):
             raise DirectCrawlError("official captcha expired while course pages were fetched")
         courses = parse_course_pages(pages)
+        if progress:
+            progress(f"parsed {len(courses)} complete course rows from all declared pages")
         return OfficialCrawlResult(
             semester=target_semester,
             semester_history=history,
@@ -380,15 +393,16 @@ def crawl_official_courses(
     *,
     semester: str | None = None,
     timeout: float = 45.0,
-    max_duration: float = 600.0,
+    max_duration: float = 720.0,
     max_pages: int | None = None,
     model_path: str | None = None,
+    progress: Callable[[str], None] | None = None,
 ) -> OfficialCrawlResult:
     solver = CaptchaSolver(model_path)
     try:
         return asyncio.run(
             asyncio.wait_for(
-                _crawl_official_async(semester, timeout, solver, max_pages),
+                _crawl_official_async(semester, timeout, solver, max_pages, progress),
                 timeout=max_duration,
             )
         )

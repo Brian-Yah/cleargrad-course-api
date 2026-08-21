@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, timezone
-import json
 import math
-from pathlib import Path
 import re
 import shutil
-from typing import Any, Iterable
+from collections.abc import Iterable
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
 
+from .canonicalize import canonicalize_courses
 from .constants import (
     COMPATIBILITY_PROFILE,
     DEFAULT_MAX_DROP_RATIO,
@@ -16,13 +17,21 @@ from .constants import (
     SCHEMA_VERSION,
     minimum_course_count_for_semester,
 )
-from .canonicalize import canonicalize_courses
 from .diffing import diff_courses
-from .io import FetchError, fetch_bytes, fetch_json, join_url, read_json, sha256_json, write_json
+from .io import (
+    FetchError,
+    fetch_bytes,
+    fetch_json,
+    join_url,
+    read_json,
+    sha256_json,
+    write_json,
+)
 from .validation import ValidationReport, validate_continuity, validate_courses
 
 SEMESTER_PATTERN = re.compile(r"^[0-9]{4}$")
 VERSION_PATTERN = re.compile(r"^[0-9]{8}_[0-9]{6}$")
+HYDRATION_CRITICAL_ATTEMPTS = 3
 
 
 class PublicationRejected(RuntimeError):
@@ -54,7 +63,7 @@ class PublishResult:
 
 
 def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def iso_utc(value: datetime | None = None) -> str:
@@ -467,7 +476,13 @@ def hydrate_site(public_base_url: str, output: Path) -> list[str]:
         return notices
     base = public_base_url.rstrip("/")
     try:
-        root = _validate_version_document(fetch_json(join_url(base, "version.json"), attempts=1), "published root")
+        root = _validate_version_document(
+            fetch_json(
+                join_url(base, "version.json"),
+                attempts=HYDRATION_CRITICAL_ATTEMPTS,
+            ),
+            "published root",
+        )
     except FetchError as error:
         notices.append(f"hydrate skipped: {error}")
         return notices
@@ -484,13 +499,17 @@ def hydrate_site(public_base_url: str, output: Path) -> list[str]:
             continue
         try:
             semester_document = _validate_version_document(
-                fetch_json(join_url(base, semester, "version.json"), attempts=1),
+                fetch_json(
+                    join_url(base, semester, "version.json"),
+                    attempts=HYDRATION_CRITICAL_ATTEMPTS,
+                ),
                 f"published {semester}",
             )
         except FetchError as error:
             notices.append(str(error))
             continue
         write_json(output / semester / "version.json", semester_document, pretty=True)
+        latest = semester_document.get("latest")
         versions = list(semester_document.get("history", {}))[-MAX_VERSION_HISTORY:]
         for version in versions:
             if not VERSION_PATTERN.fullmatch(str(version)):
@@ -499,13 +518,20 @@ def hydrate_site(public_base_url: str, output: Path) -> list[str]:
                 try:
                     target = output / semester / version / filename
                     target.parent.mkdir(parents=True, exist_ok=True)
+                    attempts = (
+                        HYDRATION_CRITICAL_ATTEMPTS
+                        if version == latest and filename in {"all.json", "manifest.json"}
+                        else 1
+                    )
                     target.write_bytes(
-                        fetch_bytes(join_url(base, semester, version, filename), attempts=1)
+                        fetch_bytes(
+                            join_url(base, semester, version, filename),
+                            attempts=attempts,
+                        )
                     )
                 except FetchError:
                     if filename == "all.json":
                         notices.append(f"published snapshot missing: {semester}/{version}/all.json")
-        latest = semester_document.get("latest")
         if isinstance(latest, str):
             for filename in ("all.json", "all.raw.json", "manifest.json"):
                 source = output / semester / latest / filename

@@ -1,16 +1,23 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
 from cleargrad_course_api.io import read_json, sha256_json
-from cleargrad_course_api.publisher import FetchedSnapshot, PublicationRejected, publish_snapshot
+from cleargrad_course_api.publisher import (
+    HYDRATION_CRITICAL_ATTEMPTS,
+    FetchedSnapshot,
+    PublicationRejected,
+    audit_site,
+    hydrate_site,
+    publish_snapshot,
+)
 
 FIXTURE = Path(__file__).parent / "fixtures" / "courses.json"
-NOW = datetime(2026, 8, 20, 8, 30, 34, tzinfo=timezone.utc)
+NOW = datetime(2026, 8, 20, 8, 30, 34, tzinfo=UTC)
 
 
 def courses() -> list[dict]:
@@ -311,3 +318,42 @@ def test_short_third_semester_below_adaptive_floor_is_rejected(tmp_path: Path) -
         rows.append(row)
     with pytest.raises(PublicationRejected, match="below the safety floor 10"):
         publish_snapshot(short_semester_snapshot(rows), tmp_path, now=NOW)
+
+
+def test_hydrate_retries_critical_pages_files_and_preserves_history(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    rows = expanded_courses(10)
+    checksum = sha256_json(rows)
+    version = "20260820_083034"
+    critical_calls: list[tuple[str, int]] = []
+
+    def fake_fetch_json(url: str, *, timeout: float = 45.0, attempts: int = 3):
+        del timeout
+        critical_calls.append((url, attempts))
+        if url.endswith("/1143/version.json"):
+            return {"latest": version, "history": {version: "2026-08-20T08:30:34Z"}}
+        return {"latest": "1143", "history": {"1143": "114暑期"}}
+
+    def fake_fetch_bytes(url: str, *, timeout: float = 45.0, attempts: int = 3) -> bytes:
+        del timeout
+        if url.endswith(f"/1143/{version}/all.json"):
+            critical_calls.append((url, attempts))
+            return json.dumps(rows, ensure_ascii=False).encode()
+        if url.endswith(f"/1143/{version}/manifest.json"):
+            critical_calls.append((url, attempts))
+            return json.dumps({"sha256": checksum}).encode()
+        if url.endswith(".json"):
+            return b"{}"
+        return b""
+
+    monkeypatch.setattr("cleargrad_course_api.publisher.fetch_json", fake_fetch_json)
+    monkeypatch.setattr("cleargrad_course_api.publisher.fetch_bytes", fake_fetch_bytes)
+
+    notices = hydrate_site("https://example.test/course-api", tmp_path)
+
+    assert notices == []
+    assert read_json(tmp_path / "version.json")["history"] == {"1143": "114暑期"}
+    assert all(attempts == HYDRATION_CRITICAL_ATTEMPTS for _, attempts in critical_calls)
+    assert audit_site(tmp_path)["ok"] is True

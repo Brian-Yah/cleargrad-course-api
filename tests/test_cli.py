@@ -6,7 +6,7 @@ from pathlib import Path
 
 import cleargrad_course_api.cli as cli
 from cleargrad_course_api.direct import DirectCrawlError, OfficialCrawlResult
-from cleargrad_course_api.io import read_json
+from cleargrad_course_api.io import FetchError, read_json
 from cleargrad_course_api.publisher import FetchedSnapshot, publish_snapshot
 
 
@@ -26,7 +26,7 @@ def test_sync_prefers_official_collector(monkeypatch, tmp_path: Path, capsys) ->
         kwargs["progress"]("fixture stage completed")
         return OfficialCrawlResult(
             semester="1151",
-            semester_history={"1151": "115暑碩"},
+            semester_history={"0821": "82上", "1151": "115暑碩"},
             courses=courses(),
             page_count=1,
             retrieved_at=NOW,
@@ -37,6 +37,13 @@ def test_sync_prefers_official_collector(monkeypatch, tmp_path: Path, capsys) ->
         "crawl_official_courses",
         succeed_direct,
     )
+    monkeypatch.setattr(
+        cli,
+        "fetch_upstream_snapshot",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("official history must not trigger mirror backfill")
+        ),
+    )
     result = cli.main(
         [
             "sync",
@@ -46,17 +53,20 @@ def test_sync_prefers_official_collector(monkeypatch, tmp_path: Path, capsys) ->
             str(tmp_path / "reports"),
             "--minimum-course-count",
             "3",
-            "--no-backfill-missing",
         ]
     )
     assert result == 0
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
     assert payload["source"] == "NSYSUOfficial"
+    assert payload["backfilled"] == []
     assert observed["max_duration"] == 720.0
     assert "official: fixture stage completed" in captured.err
     manifest = read_json(tmp_path / "site" / "1151" / payload["version"] / "manifest.json")
     assert manifest["source"] == "NSYSUOfficial"
+    assert read_json(tmp_path / "site" / "version.json")["history"] == {
+        "1151": "115暑碩"
+    }
 
 
 def test_sync_falls_back_to_static_source(monkeypatch, tmp_path: Path, capsys) -> None:
@@ -83,18 +93,23 @@ def test_sync_falls_back_to_static_source(monkeypatch, tmp_path: Path, capsys) -
     )
     fallback_courses = courses()
     fallback_courses[0]["select"] += 1
-    monkeypatch.setattr(
-        cli,
-        "fetch_upstream_snapshot",
-        lambda *_args, **_kwargs: FetchedSnapshot(
+
+    def fetch_mirror(_source_bases, *, semester=None, **_kwargs):
+        if semester is not None:
+            raise FetchError("historical fixture unavailable")
+        return FetchedSnapshot(
             semester="1151",
             source_version="20260820_091500",
             source_version_time="2026-08-20T09:15:00Z",
             courses=fallback_courses,
             source_base="https://example.test/api",
-            source_root={"latest": "1151", "history": {"1151": "115暑碩"}},
-        ),
-    )
+            source_root={
+                "latest": "1151",
+                "history": {"1142": "114上", "1151": "115暑碩"},
+            },
+        )
+
+    monkeypatch.setattr(cli, "fetch_upstream_snapshot", fetch_mirror)
     result = cli.main(
         [
             "sync",
@@ -104,12 +119,13 @@ def test_sync_falls_back_to_static_source(monkeypatch, tmp_path: Path, capsys) -
             str(tmp_path / "reports"),
             "--minimum-course-count",
             "3",
-            "--no-backfill-missing",
         ]
     )
     assert result == 0
     captured = capsys.readouterr()
     payload = json.loads(captured.out)
     assert payload["source"] == "NSYSUCourseAPI"
+    assert payload["backfilled"] == []
     assert payload["directCrawlFailure"] == "campus site is temporarily slow"
     assert "trying NSYSUCourseAPI fallback" in captured.err
+    assert "historical backfill skipped for 1142" in captured.err

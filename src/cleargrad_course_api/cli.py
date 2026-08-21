@@ -7,6 +7,7 @@ import sys
 
 from .constants import DEFAULT_SOURCE_BASES
 from .direct import DirectCrawlError, OFFICIAL_BASE_URL, OFFICIAL_RESULTS_URL, crawl_official_courses
+from .io import FetchError
 from .publisher import (
     FetchedSnapshot,
     PublicationRejected,
@@ -124,25 +125,32 @@ def main(argv: list[str] | None = None) -> int:
             max_drop_ratio=args.max_drop_ratio,
         )
         backfilled = []
-        if not args.no_backfill_missing:
+        if not args.no_backfill_missing and snapshot.source_name == "NSYSUCourseAPI":
             discovered_semesters = sorted(snapshot.source_root.get("history", {}))
             for discovered_semester in discovered_semesters:
                 if discovered_semester == snapshot.semester:
                     continue
                 if (args.output / discovered_semester / "version.json").is_file():
                     continue
-                historical = fetch_upstream_snapshot(
-                    source_bases,
-                    semester=discovered_semester,
-                    timeout=args.timeout,
-                )
-                historical_result = publish_snapshot(
-                    historical,
-                    args.output,
-                    report_dir=args.reports,
-                    minimum_course_count=args.minimum_course_count,
-                    max_drop_ratio=args.max_drop_ratio,
-                )
+                try:
+                    historical = fetch_upstream_snapshot(
+                        source_bases,
+                        semester=discovered_semester,
+                        timeout=args.timeout,
+                    )
+                    historical_result = publish_snapshot(
+                        historical,
+                        args.output,
+                        report_dir=args.reports,
+                        minimum_course_count=args.minimum_course_count,
+                        max_drop_ratio=args.max_drop_ratio,
+                    )
+                except (FetchError, PublicationRejected) as error:
+                    print(
+                        f"warning: historical backfill skipped for {discovered_semester}: {error}",
+                        file=sys.stderr,
+                    )
+                    continue
                 backfilled.append(
                     {
                         "semester": historical_result.semester,

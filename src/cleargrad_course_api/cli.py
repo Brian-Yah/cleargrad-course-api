@@ -5,9 +5,10 @@ import json
 from pathlib import Path
 import sys
 
+from .cadence import defer_cadence_after_failure, update_cadence_state
 from .constants import DEFAULT_SOURCE_BASES
 from .direct import DirectCrawlError, OFFICIAL_BASE_URL, OFFICIAL_RESULTS_URL, crawl_official_courses
-from .io import FetchError
+from .io import FetchError, read_json, write_json
 from .publisher import (
     FetchedSnapshot,
     PublicationRejected,
@@ -158,11 +159,30 @@ def main(argv: list[str] | None = None) -> int:
                         "courseCount": historical_result.course_count,
                     }
                 )
+        cadence = update_cadence_state(
+            read_json(args.output / "cadence.json", {}),
+            semester=snapshot.semester,
+            courses=snapshot.courses,
+            source_name=snapshot.source_name,
+        )
+        write_json(args.output / "cadence.json", cadence, pretty=True)
         copy_schemas(args.schema_dir, args.output)
     except PublicationRejected as error:
+        deferred = defer_cadence_after_failure(
+            read_json(args.output / "cadence.json", {})
+        )
+        if deferred is not None:
+            write_json(args.output / "cadence.json", deferred, pretty=True)
+            copy_schemas(args.schema_dir, args.output)
         print(f"publication rejected; last-known-good remains active: {error}", file=sys.stderr)
         return 2
     except Exception as error:
+        deferred = defer_cadence_after_failure(
+            read_json(args.output / "cadence.json", {})
+        )
+        if deferred is not None:
+            write_json(args.output / "cadence.json", deferred, pretty=True)
+            copy_schemas(args.schema_dir, args.output)
         print(f"sync failed; last-known-good remains active: {error}", file=sys.stderr)
         return 1
 
@@ -179,6 +199,10 @@ def main(argv: list[str] | None = None) -> int:
                 "directCrawlFailure": direct_failure,
                 "manifest": str(result.manifest_path),
                 "backfilled": backfilled,
+                "cadence": {
+                    "mode": cadence["mode"],
+                    "nextFullSyncAt": cadence["nextFullSyncAt"],
+                },
             },
             ensure_ascii=False,
         )

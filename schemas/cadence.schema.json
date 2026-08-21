@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://brian-yah.github.io/cleargrad-course-api/schemas/cadence.schema.json",
+  "title": "ClearGrad Course API adaptive crawl cadence",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "currentSemester",
+    "mode",
+    "semesterDetectedAt",
+    "highFrequencyStartedAt",
+    "highFrequencyUntil",
+    "lastEnrollmentChangeAt",
+    "enrollmentActivityPresent",
+    "enrollmentFingerprint",
+    "lastSuccessfulSyncAt",
+    "lastSource",
+    "nextFullSyncAt",
+    "policy"
+  ],
+  "properties": {
+    "schemaVersion": {"const": "1.0.0"},
+    "currentSemester": {"type": "string", "pattern": "^[0-9]{4}$"},
+    "mode": {"enum": ["quiet", "warm", "high"]},
+    "semesterDetectedAt": {"type": "string", "format": "date-time"},
+    "highFrequencyStartedAt": {"type": ["string", "null"], "format": "date-time"},
+    "highFrequencyUntil": {"type": ["string", "null"], "format": "date-time"},
+    "lastEnrollmentChangeAt": {"type": ["string", "null"], "format": "date-time"},
+    "enrollmentActivityPresent": {"type": "boolean"},
+    "enrollmentFingerprint": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "lastSuccessfulSyncAt": {"type": "string", "format": "date-time"},
+    "lastSource": {"enum": ["NSYSUOfficial", "NSYSUCourseAPI"]},
+    "nextFullSyncAt": {"type": "string", "format": "date-time"},
+    "policy": {
+      "type": "object",
+      "required": [
+        "quietIntervalMinutes",
+        "warmIntervalMinutes",
+        "highIntervalMinutes",
+        "fallbackRetryIntervalMinutes",
+        "warmDurationDays",
+        "highDurationDays",
+        "timezone"
+      ],
+      "properties": {
+        "quietIntervalMinutes": {"const": 720},
+        "warmIntervalMinutes": {"const": 120},
+        "highIntervalMinutes": {"const": 15},
+        "fallbackRetryIntervalMinutes": {"const": 60},
+        "warmDurationDays": {"const": 35},
+        "highDurationDays": {"const": 21},
+        "timezone": {"const": "Asia/Taipei"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

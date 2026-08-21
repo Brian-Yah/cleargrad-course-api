@@ -7,9 +7,9 @@ sources without rewriting its course parser.
 > 感謝國立中山大學提供課程資料。
 
 This project is an independent publication and validation pipeline. Its primary
-collector queries the public NSYSU course system directly every 15 minutes,
-limits official-site concurrency to two requests, cross-checks structure and
-continuity, and publishes only snapshots that pass all safety gates.
+collector uses an adaptive quiet/warm/high cadence, limits official-site
+concurrency to two requests, cross-checks structure and continuity, and
+publishes only snapshots that pass all safety gates.
 [NSYSUCourseAPI](https://github.com/NSYSU-OpenDev/NSYSUCourseAPI) remains a
 fallback source, not the primary data feed.
 
@@ -29,6 +29,7 @@ The Pages site exposes:
 /lkg/{semester}/all.json
 /lkg/{semester}/manifest.json
 /health.json
+/cadence.json
 /schemas/*.json
 ```
 
@@ -73,13 +74,28 @@ the versioned `diff.json`, `diff.txt`, and manifest warnings.
 
 ## Update policy
 
-The workflow runs at minute 7, 22, 37, and 52 of each hour. The offset avoids
-the busiest GitHub Actions window and reduces overlap with other public course
-collectors. It queries the official NSYSU course system first with at most two
-concurrent requests, up to five connection attempts, and a twelve-minute total budget. If
-that collector fails, it tries the NSYSUCourseAPI Pages endpoint
-and then its raw `gh-pages` representation. Older fallback data is never
-allowed to replace a newer last-known-good snapshot.
+The lightweight workflow gate runs at minute 7, 22, 37, and 52 of each hour.
+It reads only the published `cadence.json`; when a full crawl is not due, the
+job skips dependency installation, all university requests, snapshot building,
+and Pages deployment. Full official crawls use three persistent modes:
+
+- `quiet`: every 12 hours outside active preparation and selection periods;
+- `warm`: every 2 hours for 35 days after a newly discovered semester appears;
+- `high`: every 15 minutes for 21 days after `select` or `selected` first
+  becomes non-zero in that semester.
+
+The state survives Actions runs in `/cadence.json`. A newly discovered semester
+resets the cycle. If only NSYSUCourseAPI fallback data is available, the next
+official attempt occurs within one hour even in quiet mode. If every upstream
+fails, last-known-good course data stays active and the published cadence state
+backs off to one hour outside high mode; high mode retains its 15-minute retry.
+Manual workflow dispatch always bypasses the gate.
+
+The official collector uses at most two concurrent requests, up to five
+connection attempts, and a twelve-minute total budget. If it fails, the job
+tries the NSYSUCourseAPI Pages endpoint and then its raw `gh-pages`
+representation. Older fallback data is never allowed to replace a newer
+last-known-good snapshot.
 
 The root upstream index is also used for automatic semester discovery. On the
 first successful run, every missing semester is backfilled once with its latest
@@ -102,9 +118,9 @@ regular catalogs use 500 rows.
 
 Five hot snapshots bound Pages size and hydration traffic while the permanent
 per-semester snapshot keeps old planning data available. Supabase remains a
-separate cold backup and is not involved in the 15-minute discovery job.
+separate cold backup and is not involved in adaptive cadence checks or crawls.
 
-Supabase is deliberately excluded from this 15-minute workflow. It is a cold
+Supabase is deliberately excluded from this adaptive workflow. It is a cold
 backup, not another live mirror. See
 [ClearGrad integration](docs/cleargrad-integration.md) for the read/write
 policy.

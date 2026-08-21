@@ -473,7 +473,7 @@ def hydrate_site(public_base_url: str, output: Path) -> list[str]:
         return notices
 
     write_json(output / "version.json", root, pretty=True)
-    for singleton in ("health.json",):
+    for singleton in ("health.json", "cadence.json"):
         try:
             (output / singleton).write_bytes(fetch_bytes(join_url(base, singleton), attempts=1))
         except FetchError:

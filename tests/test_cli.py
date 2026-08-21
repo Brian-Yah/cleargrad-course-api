@@ -64,6 +64,10 @@ def test_sync_prefers_official_collector(monkeypatch, tmp_path: Path, capsys) ->
     assert "official: fixture stage completed" in captured.err
     manifest = read_json(tmp_path / "site" / "1151" / payload["version"] / "manifest.json")
     assert manifest["source"] == "NSYSUOfficial"
+    cadence = read_json(tmp_path / "site" / "cadence.json")
+    assert cadence["currentSemester"] == "1151"
+    assert cadence["mode"] == "high"
+    assert cadence["lastSource"] == "NSYSUOfficial"
     assert read_json(tmp_path / "site" / "version.json")["history"] == {
         "1151": "115暑碩"
     }

@@ -31,6 +31,7 @@ DEFAULT_HEADERS = {
 MAX_CONCURRENT_REQUESTS = 2
 MAX_REQUEST_ATTEMPTS = 5
 MAX_CAPTCHA_ATTEMPTS = 8
+OFFICIAL_CHANGE_MARKERS = frozenset({"", "異動", "新增", "停開"})
 PAGE_COUNT_PATTERN = re.compile(r"Showing page\s+\d+\s+of\s+(\d+)\s+pages", re.I)
 
 
@@ -168,7 +169,7 @@ def parse_course_row(row: Tag) -> dict[str, Any]:
     link = cells[7].select_one("small a[href]") or cells[7].select_one("a[href]")
     if link is None:
         raise ValueError("course outline URL is missing")
-    if change not in {"", "異動", "新增"}:
+    if change not in OFFICIAL_CHANGE_MARKERS:
         raise ValueError(f"unexpected change marker: {change!r}")
     if multiple_compulsory not in {"", "*"}:
         raise ValueError(f"unexpected multiple-compulsory marker: {multiple_compulsory!r}")

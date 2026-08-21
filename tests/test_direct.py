@@ -3,6 +3,7 @@ from __future__ import annotations
 from bs4 import BeautifulSoup
 import hashlib
 from pathlib import Path
+import pytest
 
 from cleargrad_course_api.direct import (
     MAX_CONCURRENT_REQUESTS,
@@ -41,9 +42,10 @@ def test_parse_semester_index_preserves_official_order_and_labels() -> None:
     assert history == {"1151": "115暑碩", "1143": "114下", "1142": "114上"}
 
 
-def test_parse_official_course_row_keeps_dynamic_enrollment_fields() -> None:
+@pytest.mark.parametrize("change_marker", ["", "異動", "新增", "停開"])
+def test_parse_official_course_row_keeps_dynamic_enrollment_fields(change_marker: str) -> None:
     values = [
-        "異動",
+        change_marker,
         "8/20",
         "*",
         "資訊工程學系",
@@ -74,6 +76,7 @@ def test_parse_official_course_row_keeps_dynamic_enrollment_fields() -> None:
     assert row is not None
     course = parse_course_row(row)
     assert course["id"] == "CSE101"
+    assert course["change"] == (change_marker or None)
     assert course["select"] == 65
     assert course["selected"] == 52
     assert course["remaining"] == 8
